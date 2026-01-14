@@ -291,6 +291,7 @@ public:
   bool isSubsetOf(const Bitset &other) const;
   bool intersects(const Bitset &other) const;
   Bitset slice(size_t start, size_t count) const;
+  size_t hammingDistance(const Bitset &other) const;
 
   class ZerosView {
     const Bitset *m_bitset;

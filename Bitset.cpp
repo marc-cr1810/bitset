@@ -245,20 +245,80 @@ bool Bitset::all() const {
 }
 
 std::optional<size_t> Bitset::findFirstSet() const {
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+  size_t fullBlocks = m_numBits / BitsPerBlock;
+  size_t i = 0;
+
+  // SIMD: Skip 256-bit / 128-bit chunks that are all zero
+#if defined(__AVX2__)
+  for (; i + 4 <= fullBlocks; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    if (_mm256_testz_si256(val, val))
+      continue; // All zero, skip
+    break;      // Found non-zero
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= fullBlocks; i += 2) {
+    uint64x2_t val = vld1q_u64(&m_blocks[i]);
+    // logical OR of two 64-bit lanes
+    uint64_t low = vgetq_lane_u64(val, 0);
+    uint64_t high = vgetq_lane_u64(val, 1);
+    if ((low | high) == 0)
+      continue;
+    break;
+  }
+#endif
+
+  // Check blocks
+  for (; i < fullBlocks; ++i) {
     if (m_blocks[i] != 0) {
       size_t bit = std::countr_zero(m_blocks[i]);
       return i * BitsPerBlock + bit;
     }
   }
+
+  // Check last partial block
+  size_t extraBits = m_numBits % BitsPerBlock;
+  if (extraBits != 0) {
+    BlockType mask = (static_cast<BlockType>(1) << extraBits) - 1;
+    if ((m_blocks.back() & mask) != 0) {
+      size_t bit = std::countr_zero(m_blocks.back());
+      return fullBlocks * BitsPerBlock + bit;
+    }
+  }
+
   return std::nullopt;
 }
 
 std::optional<size_t> Bitset::findFirstZero() const {
   size_t fullBlocks = m_numBits / BitsPerBlock;
+  size_t i = 0;
+
+  // SIMD: Skip chunks that are all ones
+#if defined(__AVX2__)
+  __m256i allOnes = _mm256_set1_epi64x(-1);
+  for (; i + 4 <= fullBlocks; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    // Check if (val & ~allOnes) == 0 ? No. Check if (allOnes & ~val) == 0.
+    if (_mm256_testc_si256(val, allOnes))
+      continue; // All ones, skip
+    break;
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= fullBlocks; i += 2) {
+    uint64x2_t val = vld1q_u64(&m_blocks[i]);
+    val = vmvnq_u64(val); // invert
+    uint64_t low = vgetq_lane_u64(val, 0);
+    uint64_t high = vgetq_lane_u64(val, 1);
+    if ((low | high) == 0)
+      continue; // Original was all ones
+    break;
+  }
+#endif
 
   // Check full blocks
-  for (size_t i = 0; i < fullBlocks; ++i) {
+  for (; i < fullBlocks; ++i) {
     if (m_blocks[i] != static_cast<BlockType>(~0)) {
       size_t bit = std::countr_one(m_blocks[i]);
       return i * BitsPerBlock + bit;
@@ -666,4 +726,21 @@ Bitset Bitset::slice(size_t start, size_t count) const {
   }
 
   return result;
+}
+
+size_t Bitset::hammingDistance(const Bitset &other) const {
+  if (m_numBits != other.m_numBits) {
+    throw std::invalid_argument("Sizes must match for hamming distance");
+  }
+
+  size_t dist = 0;
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+  // SIMD-friendly loop (compiler auto-vectorization target)
+  for (; i < n; ++i) {
+    dist += std::popcount(m_blocks[i] ^ other.m_blocks[i]);
+  }
+
+  return dist;
 }

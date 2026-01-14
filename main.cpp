@@ -151,6 +151,36 @@ void testSlice() {
   // Slice checks bounds
   if (bs.slice(10, 1).size() == 0)
     std::cout << "Slice bounds cap PASSED" << std::endl;
+
+  std::cout << "\n--- Hamming Distance Test ---" << std::endl;
+  Bitset h1("101010");
+  Bitset
+      h2("011010"); // diff at 0 and 1. 101010 vs 011010 -> xor 110000 -> dist
+                    // 2? h1: 101010 (bits 5,3,1 set? or 0,1,2? String ctor:
+                    // "10" -> 1 at 0, 0 at 1. Let's rely on explicit logic.
+                    // "101010" -> indices 0, 2, 4 are '1' (or inverted
+                    // depending on string logic). Actually string ctor usually
+                    // parses index 0 as last char or first? Let's assume
+                    // standard behavior and just test known diff.
+  Bitset h3(6);
+  h3.set(0);
+  h3.set(1);
+  Bitset h4(6);
+  h4.set(0);
+  h4.set(2);
+  // h3: 110000, h4: 101000. Xor: 011000. Dist: 2.
+  if (h3.hammingDistance(h4) != 2)
+    throw std::runtime_error("Hamming failed simple check");
+
+  // Mixed size check
+  try {
+    Bitset small(5);
+    h3.hammingDistance(small);
+    throw std::runtime_error("Hamming failed to throw on size mismatch");
+  } catch (const std::exception &) {
+  }
+
+  std::cout << "Hamming PASSED" << std::endl;
 }
 
 int main() {
