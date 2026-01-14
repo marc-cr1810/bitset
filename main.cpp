@@ -147,9 +147,34 @@ int main() {
 
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = end - start;
-  std::cout << "Time for 100M set/test ops: " << diff.count() << " s "
+  std::cout << "Bitset Time:         " << diff.count() << " s "
             << "(Check: " << count << ")" << std::endl;
-  std::cout << "Ops/sec: " << (200.0 / diff.count()) << " M/s" << std::endl;
+  std::cout << "Bitset Ops/sec:      " << (200.0 / diff.count()) << " M/s"
+            << std::endl;
+
+  // std::vector<bool> Benchmark
+  std::cout << "\n--- std::vector<bool> Benchmark ---" << std::endl;
+  std::vector<bool> vec(100000000); // 100 million bits
+  start = std::chrono::high_resolution_clock::now();
+
+  // Dense set
+  for (size_t i = 0; i < 100000000; i += 2) {
+    vec[i] = true;
+  }
+
+  // Dense test
+  count = 0;
+  for (size_t i = 0; i < 100000000; ++i) {
+    if (vec[i])
+      count++;
+  }
+
+  end = std::chrono::high_resolution_clock::now();
+  diff = end - start;
+  std::cout << "std::vector<bool> Time:    " << diff.count() << " s "
+            << "(Check: " << count << ")" << std::endl;
+  std::cout << "std::vector<bool> Ops/sec: " << (200.0 / diff.count()) << " M/s"
+            << std::endl;
 
   std::cout << "\nAll Tests Completed." << std::endl;
   return 0;
