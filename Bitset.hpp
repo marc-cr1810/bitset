@@ -15,6 +15,13 @@
 #include <type_traits>
 #include <vector>
 
+// SIMD Headers
+#if defined(__AVX2__)
+#include <immintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+
 class Bitset;
 namespace std {
 template <> struct hash<Bitset> {

@@ -32,7 +32,31 @@ Bitset &Bitset::operator&=(const Bitset &rhs) {
     throw std::invalid_argument(
         "Bitset sizes must match for bitwise operations");
   }
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  // Process 256 bits (4 x 64-bit blocks) at a time
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    __m256i b =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&rhs.m_blocks[i]));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(&m_blocks[i]),
+                        _mm256_and_si256(a, b));
+  }
+#elif defined(__ARM_NEON)
+  // Process 128 bits (2 x 64-bit blocks) at a time
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
+    vst1q_u64(&m_blocks[i], vandq_u64(a, b));
+  }
+#endif
+
+  // Scalar fallback
+  for (; i < n; ++i) {
     m_blocks[i] &= rhs.m_blocks[i];
   }
   return *this;
@@ -43,7 +67,28 @@ Bitset &Bitset::operator|=(const Bitset &rhs) {
     throw std::invalid_argument(
         "Bitset sizes must match for bitwise operations");
   }
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    __m256i b =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&rhs.m_blocks[i]));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(&m_blocks[i]),
+                        _mm256_or_si256(a, b));
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
+    vst1q_u64(&m_blocks[i], vorrq_u64(a, b));
+  }
+#endif
+
+  for (; i < n; ++i) {
     m_blocks[i] |= rhs.m_blocks[i];
   }
   return *this;
@@ -54,7 +99,28 @@ Bitset &Bitset::operator^=(const Bitset &rhs) {
     throw std::invalid_argument(
         "Bitset sizes must match for bitwise operations");
   }
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    __m256i b =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&rhs.m_blocks[i]));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(&m_blocks[i]),
+                        _mm256_xor_si256(a, b));
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
+    vst1q_u64(&m_blocks[i], veorq_u64(a, b));
+  }
+#endif
+
+  for (; i < n; ++i) {
     m_blocks[i] ^= rhs.m_blocks[i];
   }
   return *this;
@@ -62,7 +128,25 @@ Bitset &Bitset::operator^=(const Bitset &rhs) {
 
 Bitset Bitset::operator~() const {
   Bitset result(m_numBits);
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  __m256i allOnes = _mm256_set1_epi64x(-1);
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    _mm256_storeu_si256(reinterpret_cast<__m256i *>(&result.m_blocks[i]),
+                        _mm256_xor_si256(a, allOnes));
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    vst1q_u64(&result.m_blocks[i], vmvnq_u64(a));
+  }
+#endif
+
+  for (; i < n; ++i) {
     result.m_blocks[i] = ~m_blocks[i];
   }
 
@@ -86,8 +170,29 @@ size_t Bitset::count() const {
 }
 
 bool Bitset::any() const {
-  for (const auto &block : m_blocks) {
-    if (block != 0)
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  for (; i + 4 <= n; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    if (!_mm256_testz_si256(val, val))
+      return true;
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t val = vld1q_u64(&m_blocks[i]);
+    // logical OR of two 64-bit lanes
+    uint64_t low = vgetq_lane_u64(val, 0);
+    uint64_t high = vgetq_lane_u64(val, 1);
+    if (low | high)
+      return true;
+  }
+#endif
+
+  for (; i < n; ++i) {
+    if (m_blocks[i] != 0)
       return true;
   }
   return false;
@@ -96,9 +201,34 @@ bool Bitset::any() const {
 bool Bitset::none() const { return !any(); }
 
 bool Bitset::all() const {
-  // Check full blocks
   size_t fullBlocks = m_numBits / BitsPerBlock;
-  for (size_t i = 0; i < fullBlocks; ++i) {
+  size_t i = 0;
+
+#if defined(__AVX2__)
+  __m256i allOnes = _mm256_set1_epi64x(-1);
+  for (; i + 4 <= fullBlocks; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    // Check if any bit is ZERO. testc(a,b) returns 1 if b has all bits of a.
+    // So testc(val, allOnes) checks if val has all bits of allOnes... wait.
+    // testc(a,b) : (b & ~a) == 0 ?? No.
+    // _mm256_testc_si256(a, b) returns 1 if (a & ~b) == 0.
+    // We want (allOnes & ~val) == 0. So testc(allOnes, val).
+    if (!_mm256_testc_si256(val, allOnes))
+      return false;
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= fullBlocks; i += 2) {
+    uint64x2_t val = vld1q_u64(&m_blocks[i]);
+    // check if all bits are 1. Invert and check if 0.
+    val = vmvnq_u64(val);
+    if (vgetq_lane_u64(val, 0) | vgetq_lane_u64(val, 1))
+      return false;
+  }
+#endif
+
+  // Check full blocks
+  for (; i < fullBlocks; ++i) {
     if (m_blocks[i] != static_cast<BlockType>(~0))
       return false;
   }
@@ -447,7 +577,31 @@ bool Bitset::isSubsetOf(const Bitset &other) const {
     throw std::invalid_argument("Sizes must match for set comparison");
   }
 
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    __m256i b = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i *>(&other.m_blocks[i]));
+    // Check if (a & ~b) == 0.
+    if (!_mm256_testz_si256(a, _mm256_andnot_si256(b, a)))
+      return false;
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    uint64x2_t b = vld1q_u64(&other.m_blocks[i]);
+    // check (a & ~b) == 0
+    uint64x2_t diff = vandq_u64(a, vmvnq_u64(b));
+    if (vgetq_lane_u64(diff, 0) | vgetq_lane_u64(diff, 1))
+      return false;
+  }
+#endif
+
+  for (; i < n; ++i) {
     // checks if any bit set in 'this' is NOT set in 'other'
     // (this & ~other) should be 0.
     if ((m_blocks[i] & ~other.m_blocks[i]) != 0)
@@ -461,7 +615,30 @@ bool Bitset::intersects(const Bitset &other) const {
     throw std::invalid_argument("Sizes must match for set comparison");
   }
 
-  for (size_t i = 0; i < m_blocks.size(); ++i) {
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+#if defined(__AVX2__)
+  for (; i + 4 <= n; i += 4) {
+    __m256i a =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    __m256i b = _mm256_loadu_si256(
+        reinterpret_cast<const __m256i *>(&other.m_blocks[i]));
+    // Check if (a & b) != 0. testz returns 1 if (a & b) == 0.
+    if (!_mm256_testz_si256(a, b))
+      return true;
+  }
+#elif defined(__ARM_NEON)
+  for (; i + 2 <= n; i += 2) {
+    uint64x2_t a = vld1q_u64(&m_blocks[i]);
+    uint64x2_t b = vld1q_u64(&other.m_blocks[i]);
+    uint64x2_t both = vandq_u64(a, b);
+    if (vgetq_lane_u64(both, 0) | vgetq_lane_u64(both, 1))
+      return true;
+  }
+#endif
+
+  for (; i < n; ++i) {
     if ((m_blocks[i] & other.m_blocks[i]) != 0)
       return true;
   }

@@ -211,6 +211,34 @@ int main() {
   std::cout << "std::vector<bool> Ops/sec: " << (200.0 / diff.count()) << " M/s"
             << std::endl;
 
+  std::cout << "std::vector<bool> Ops/sec: " << (200.0 / diff.count()) << " M/s"
+            << std::endl;
+
+  // Bulk Operations Benchmark (SIMD)
+  std::cout << "\n--- Bulk Operations Benchmark (SIMD) ---" << std::endl;
+  Bitset b1(100000000);
+  Bitset b2(100000000);
+  // Initialize with some pattern
+  for (size_t i = 0; i < 100000000; i += 3)
+    b1.set(i);
+  for (size_t i = 0; i < 100000000; i += 5)
+    b2.set(i);
+
+  start = std::chrono::high_resolution_clock::now();
+  size_t iterations = 100;
+  for (size_t k = 0; k < iterations; ++k) {
+    b1 &= b2; // This should be SIMD-accelerated
+    b1 |= b2; // Restore some bits to keep it interesting
+  }
+  end = std::chrono::high_resolution_clock::now();
+  diff = end - start;
+
+  // Total bits processed = 100M * 2 ops * iterations
+  double totalBits = 100e6 * 2 * iterations;
+  std::cout << "Bulk Ops Time:       " << diff.count() << " s" << std::endl;
+  std::cout << "Throughput:          " << (totalBits / diff.count() / 1e9)
+            << " Gbits/s" << std::endl;
+
   std::cout << "\nAll Tests Completed." << std::endl;
   return 0;
 }
