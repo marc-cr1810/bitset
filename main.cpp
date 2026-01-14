@@ -139,7 +139,7 @@ int main() {
   }
 
   // Dense test
-  volatile size_t count = 0;
+  size_t count = 0;
   for (size_t i = 0; i < 100000000; ++i) {
     if (bm.test(i))
       count++;
@@ -147,8 +147,8 @@ int main() {
 
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = end - start;
-  std::cout << "Time for 100M set/test ops: " << diff.count() << " s"
-            << std::endl;
+  std::cout << "Time for 100M set/test ops: " << diff.count() << " s "
+            << "(Check: " << count << ")" << std::endl;
   std::cout << "Ops/sec: " << (200.0 / diff.count()) << " M/s" << std::endl;
 
   std::cout << "\nAll Tests Completed." << std::endl;

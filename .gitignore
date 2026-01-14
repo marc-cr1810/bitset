@@ -1,0 +1,30 @@
+# CMake Build Artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+*.cmake
+!CMakeLists.txt
+
+# Binary Files
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.gch
+
+# Executables
+bitset_app
+
+# Test Output
+*.bin
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
