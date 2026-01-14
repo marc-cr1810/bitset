@@ -6,51 +6,53 @@
 #include <unordered_map>
 #include <vector>
 
-void testProxy() {
+using zephyr::bitset_t;
+
+void test_proxy() {
   std::cout << "\n--- Proxy Test ---" << std::endl;
-  Bitset bs(10);
+  bitset_t bs(10);
   bs[0] = true;
   bs[5] = true;
   if (bs[0] && !bs[1] && bs[5])
     std::cout << "Proxy Read/Write PASSED" << std::endl;
 }
 
-void testBitwise() {
+void test_bitwise() {
   std::cout << "\n--- Bitwise Test ---" << std::endl;
-  Bitset a(4);
+  bitset_t a(4);
   a[0] = 1;
   a[2] = 1;
-  Bitset b(4);
+  bitset_t b(4);
   b[1] = 1;
   b[2] = 1;
-  Bitset c = a & b;
+  bitset_t c = a & b;
   if (!c[0] && !c[1] && c[2])
     std::cout << "Bitwise Ops PASSED" << std::endl;
 }
 
-void testSearch() {
+void test_search() {
   std::cout << "\n--- Search Test ---" << std::endl;
-  Bitset bs(100);
+  bitset_t bs(100);
   bs[10] = 1;
-  if (bs.count() == 1 && *bs.findFirstSet() == 10)
+  if (bs.count() == 1 && *bs.find_first_set() == 10)
     std::cout << "Search PASSED" << std::endl;
 }
 
-void testIO() {
+void test_io() {
   std::cout << "\n--- I/O Test ---" << std::endl;
-  Bitset bs(128);
+  bitset_t bs(128);
   bs[0] = 1;
   bs[127] = 1;
   bs.save("test_bitset.bin");
-  Bitset loaded(0);
+  bitset_t loaded(0);
   loaded.load("test_bitset.bin");
   if (loaded.size() == 128 && loaded[0])
     std::cout << "I/O PASSED" << std::endl;
 }
 
-void testIterator() {
+void test_iterator() {
   std::cout << "\n--- Iterator Test ---" << std::endl;
-  Bitset bs(100);
+  bitset_t bs(100);
   bs[10] = 1;
   bs[50] = 1;
   std::vector<size_t> found;
@@ -60,29 +62,29 @@ void testIterator() {
     std::cout << "Ones Iterator PASSED" << std::endl;
 }
 
-void testShiftRangeHash() {
+void test_shift_range_hash() {
   std::cout << "\n--- Shift/Range/Hash Test ---" << std::endl;
-  Bitset bs(64);
+  bitset_t bs(64);
   bs[0] = 1;
   bs <<= 1;
   if (bs[1])
     std::cout << "Shift PASSED" << std::endl;
 
-  bs.setRange(10, 10, true);
+  bs.set_range(10, 10, true);
   if (bs[10] && bs[19])
     std::cout << "Range PASSED" << std::endl;
 
-  std::unordered_map<Bitset, int> map;
+  std::unordered_map<bitset_t, int> map;
   map[bs] = 42;
   if (map[bs] == 42)
     std::cout << "Hash PASSED" << std::endl;
 }
 
-void testPolish() {
+void test_polish() {
   std::cout << "\n--- Polish Features Test ---" << std::endl;
 
   // String Ctor
-  Bitset s("101"); // 5
+  bitset_t s("101"); // 5
   if (s.size() == 3 && s[0] && !s[1] && s[2])
     std::cout << "String Ctor PASSED" << std::endl;
   else
@@ -95,16 +97,16 @@ void testPolish() {
     std::cout << "to_uint64 FAILED: " << s.to_uint64() << std::endl;
 
   // Relations
-  Bitset a("101");
-  Bitset b("111");
-  if (a.isSubsetOf(b) && !b.isSubsetOf(a) && a.intersects(b))
+  bitset_t a("101");
+  bitset_t b("111");
+  if (a.is_subset_of(b) && !b.is_subset_of(a) && a.intersects(b))
     std::cout << "Relations PASSED" << std::endl;
   else
     std::cout << "Relations FAILED" << std::endl;
 
   // Zeros Iterator
-  Bitset z(5); // 00000
-  z[2] = 1;    // 00100
+  bitset_t z(5); // 00000
+  z[2] = 1;      // 00100
   std::cout << "Zeros: ";
   std::vector<size_t> zeros;
   for (auto i : z.zeros()) {
@@ -120,29 +122,29 @@ void testPolish() {
 }
 
 // Slice Benchmark
-void testSlice() {
+void test_slice() {
   std::cout << "\n--- Slice Test ---" << std::endl;
   // 0123456789...
   // 10111000...
-  Bitset bs(10);
+  bitset_t bs(10);
   bs[0] = 1;
   bs[2] = 1;
   bs[3] = 1;
   bs[4] = 1;
 
   // Slice "111" starting at 2
-  Bitset s = bs.slice(2, 3);
+  bitset_t s = bs.slice(2, 3);
   if (s.size() == 3 && s[0] && s[1] && s[2])
     std::cout << "Slice exact PASSED" << std::endl;
   else
-    std::cout << "Slice exact FAILED: " << s.toString() << std::endl;
+    std::cout << "Slice exact FAILED: " << s.to_string() << std::endl;
 
   // Slice crossing blocks (simulated)
-  Bitset longB(100);
-  longB.set(60);
-  longB.set(65);
+  bitset_t long_b(100);
+  long_b.set(60);
+  long_b.set(65);
   // Slice around 60: start 50, count 20. 60->10, 65->15
-  Bitset s2 = longB.slice(50, 20);
+  bitset_t s2 = long_b.slice(50, 20);
   if (s2.size() == 20 && s2[10] && s2[15])
     std::cout << "Slice cross-block PASSED" << std::endl;
   else
@@ -153,67 +155,60 @@ void testSlice() {
     std::cout << "Slice bounds cap PASSED" << std::endl;
 
   std::cout << "\n--- Search Next Test ---" << std::endl;
-  Bitset sn(128);
+  bitset_t sn(128);
   sn.set(10);
   sn.set(70);
   sn.set(120);
 
-  if (sn.findNextSet(0) != 10)
-    throw std::runtime_error("findNextSet(0) failed");
-  if (sn.findNextSet(10) != 10)
-    throw std::runtime_error("findNextSet(10) failed");
-  if (sn.findNextSet(11) != 70)
-    throw std::runtime_error("findNextSet(11) failed");
-  if (sn.findNextSet(71) != 120)
-    throw std::runtime_error("findNextSet(71) failed");
-  if (sn.findNextSet(121) != std::nullopt)
-    throw std::runtime_error("findNextSet(121) failed");
+  if (sn.find_next_set(0) != 10)
+    throw std::runtime_error("find_next_set(0) failed");
+  if (sn.find_next_set(10) != 10)
+    throw std::runtime_error("find_next_set(10) failed");
+  if (sn.find_next_set(11) != 70)
+    throw std::runtime_error("find_next_set(11) failed");
+  if (sn.find_next_set(71) != 120)
+    throw std::runtime_error("find_next_set(71) failed");
+  if (sn.find_next_set(121) != std::nullopt)
+    throw std::runtime_error("find_next_set(121) failed");
 
-  if (sn.findNextZero(10) != 11)
-    throw std::runtime_error("findNextZero(10) failed");
+  if (sn.find_next_zero(10) != 11)
+    throw std::runtime_error("find_next_zero(10) failed");
 
   std::cout << "Search Next PASSED" << std::endl;
 
   std::cout << "\n--- Flip Range Test ---" << std::endl;
-  Bitset fr(100);
-  fr.flipRange(10, 20); // 10..29 set to 1
+  bitset_t fr(100);
+  fr.flip_range(10, 20); // 10..29 set to 1
   for (size_t i = 10; i < 30; ++i) {
     if (!fr.test(i))
-      throw std::runtime_error("flipRange set failed");
+      throw std::runtime_error("flip_range set failed");
   }
   if (fr.test(9) || fr.test(30))
-    throw std::runtime_error("flipRange excessive");
+    throw std::runtime_error("flip_range excessive");
 
-  fr.flipRange(10, 20); // 10..29 set to 0
+  fr.flip_range(10, 20); // 10..29 set to 0
   if (fr.any())
-    throw std::runtime_error("flipRange reset failed");
+    throw std::runtime_error("flip_range reset failed");
 
   std::cout << "Flip Range PASSED" << std::endl;
 
   std::cout << "\n--- Hamming Distance Test ---" << std::endl;
-  Bitset h1("101010");
-  Bitset h2(
-      "011010"); // diff at 0 and 1. 101010 vs 011010 -> xor 110000 -> dist
-                 // 2? h1: 101010 (bits 5,3,1 set? or 0,1,2? String ctor:
-                 // "10" -> 1 at 0, 0 at 1. Let's rely on explicit logic.
-                 // "101010" -> indices 0, 2, 4 are '1' (or inverted
-                 // depending on string logic). Actually string ctor usually
-                 // parses index 0 as last char or first? Let's assume
-                 // standard behavior and just test known diff.
-  Bitset h3(6);
+  bitset_t h1("101010");
+  bitset_t h2("011010");
+  bitset_t h3(6);
   h3.set(0);
   h3.set(1);
-  Bitset h4(6);
+  bitset_t h4(6);
   h4.set(0);
   h4.set(2);
   // h3: 110000, h4: 101000. Xor: 011000. Dist: 2.
-  if (h3.hammingDistance(h4) != 2)
+  if (h3.hamming_distance(h4) != 2)
     throw std::runtime_error("Hamming failed simple check");
 
   // Mixed size check
   try {
-    Bitset small(5);
-    h3.hammingDistance(small);
+    bitset_t small(5);
+    h3.hamming_distance(small);
     throw std::runtime_error("Hamming failed to throw on size mismatch");
   } catch (const std::exception &) {
   }
@@ -223,17 +218,17 @@ void testSlice() {
 
 int main() {
   std::cout << "Starting All Tests..." << std::endl;
-  testProxy();
-  testBitwise();
-  testSearch();
-  testIO();
-  testIterator();
-  testShiftRangeHash();
-  testPolish();
-  testSlice();
+  test_proxy();
+  test_bitwise();
+  test_search();
+  test_io();
+  test_iterator();
+  test_shift_range_hash();
+  test_polish();
+  test_slice();
   // Benchmark
   std::cout << "\n--- Performance Benchmark ---" << std::endl;
-  Bitset bm(100000000); // 100 million bits
+  bitset_t bm(100000000); // 100 million bits
   auto start = std::chrono::high_resolution_clock::now();
 
   // Dense set
@@ -250,9 +245,9 @@ int main() {
 
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff = end - start;
-  std::cout << "Bitset Time:         " << diff.count() << " s "
+  std::cout << "bitset_t Time:         " << diff.count() << " s "
             << "(Check: " << count << ")" << std::endl;
-  std::cout << "Bitset Ops/sec:      " << (200.0 / diff.count()) << " M/s"
+  std::cout << "bitset_t Ops/sec:      " << (200.0 / diff.count()) << " M/s"
             << std::endl;
 
   // std::vector<bool> Benchmark
@@ -279,13 +274,10 @@ int main() {
   std::cout << "std::vector<bool> Ops/sec: " << (200.0 / diff.count()) << " M/s"
             << std::endl;
 
-  std::cout << "std::vector<bool> Ops/sec: " << (200.0 / diff.count()) << " M/s"
-            << std::endl;
-
   // Bulk Operations Benchmark (SIMD)
   std::cout << "\n--- Bulk Operations Benchmark (SIMD) ---" << std::endl;
-  Bitset b1(100000000);
-  Bitset b2(100000000);
+  bitset_t b1(100000000);
+  bitset_t b2(100000000);
   // Initialize with some pattern
   for (size_t i = 0; i < 100000000; i += 3)
     b1.set(i);
@@ -302,9 +294,9 @@ int main() {
   diff = end - start;
 
   // Total bits processed = 100M * 2 ops * iterations
-  double totalBits = 100e6 * 2 * iterations;
+  double total_bits = 100e6 * 2 * iterations;
   std::cout << "Bulk Ops Time:       " << diff.count() << " s" << std::endl;
-  std::cout << "Throughput:          " << (totalBits / diff.count() / 1e9)
+  std::cout << "Throughput:          " << (total_bits / diff.count() / 1e9)
             << " Gbits/s" << std::endl;
 
   std::cout << "\nAll Tests Completed." << std::endl;

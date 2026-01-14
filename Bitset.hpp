@@ -1,4 +1,5 @@
 #pragma once
+
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -22,171 +23,176 @@
 #include <arm_neon.h>
 #endif
 
-class Bitset;
+namespace zephyr {
+
+class bitset_t;
+
+} // namespace zephyr
+
 namespace std {
-template <> struct hash<Bitset> {
-  size_t operator()(const Bitset &b) const;
+template <> struct hash<zephyr::bitset_t> {
+  size_t operator()(const zephyr::bitset_t &b) const;
 };
 } // namespace std
 
-class Bitset {
-public:
-  using BlockType = std::size_t;
-  static constexpr size_t BitsPerBlock = sizeof(BlockType) * 8;
+namespace zephyr {
 
-  explicit Bitset(size_t numBits);
-  ~Bitset() = default;
-  Bitset(const Bitset &) = default;
-  Bitset &operator=(const Bitset &) = default;
-  Bitset(Bitset &&) noexcept = default;
-  Bitset &operator=(Bitset &&) noexcept = default;
+class bitset_t {
+public:
+  using block_type = std::size_t;
+  static constexpr size_t BITS_PER_BLOCK = sizeof(block_type) * 8;
+
+  explicit bitset_t(size_t num_bits);
+  ~bitset_t() = default;
+  bitset_t(const bitset_t &) = default;
+  bitset_t &operator=(const bitset_t &) = default;
+  bitset_t(bitset_t &&) noexcept = default;
+  bitset_t &operator=(bitset_t &&) noexcept = default;
 
   // Set bit at index to value
-  void set(size_t index, bool value = true) {
-    if (index >= m_numBits)
-      throw std::out_of_range("Bitset index out of range");
-    setUnchecked(index, value);
+  auto set(size_t index, bool value = true) -> void {
+    if (index >= m_num_bits)
+      throw std::out_of_range("bitset_t index out of range");
+    set_unchecked(index, value);
   }
 
-  void setUnchecked(size_t index, bool value) {
-    BlockType mask = static_cast<BlockType>(1) << (index % BitsPerBlock);
+  auto set_unchecked(size_t index, bool value) -> void {
+    block_type mask = static_cast<block_type>(1) << (index % BITS_PER_BLOCK);
     // Branchless set:
     // If value is 1, -value is all 1s (on 2s complement).
     // If value is 0, -value is 0.
     // (blocks & ~mask) clears the bit.
     // ((-value) & mask) sets the bit if value is 1, else 0.
-    m_blocks[index / BitsPerBlock] =
-        (m_blocks[index / BitsPerBlock] & ~mask) |
-        (static_cast<BlockType>(-static_cast<std::ptrdiff_t>(value)) & mask);
+    m_blocks[index / BITS_PER_BLOCK] =
+        (m_blocks[index / BITS_PER_BLOCK] & ~mask) |
+        (static_cast<block_type>(-static_cast<std::ptrdiff_t>(value)) & mask);
   }
 
   // Get bit at index
-  [[nodiscard]] bool test(size_t index) const {
-    if (index >= m_numBits)
-      throw std::out_of_range("Bitset index out of range");
-    return testUnchecked(index);
+  [[nodiscard]] auto test(size_t index) const -> bool {
+    if (index >= m_num_bits)
+      throw std::out_of_range("bitset_t index out of range");
+    return test_unchecked(index);
   }
 
-  [[nodiscard]] bool testUnchecked(size_t index) const {
-    return (m_blocks[index / BitsPerBlock] &
-            (static_cast<BlockType>(1) << (index % BitsPerBlock))) != 0;
+  [[nodiscard]] auto test_unchecked(size_t index) const -> bool {
+    return (m_blocks[index / BITS_PER_BLOCK] &
+            (static_cast<block_type>(1) << (index % BITS_PER_BLOCK))) != 0;
   }
 
   // Flip bit at index
-  void flip(size_t index) {
-    if (index >= m_numBits)
-      throw std::out_of_range("Bitset index out of range");
-    m_blocks[index / BitsPerBlock] ^=
-        (static_cast<BlockType>(1) << (index % BitsPerBlock));
+  auto flip(size_t index) -> void {
+    if (index >= m_num_bits)
+      throw std::out_of_range("bitset_t index out of range");
+    m_blocks[index / BITS_PER_BLOCK] ^=
+        (static_cast<block_type>(1) << (index % BITS_PER_BLOCK));
   }
 
   // Reset bit at index (set to 0)
-  void reset(size_t index) { set(index, false); }
+  auto reset(size_t index) -> void { set(index, false); }
 
   // Resize the bitset
-  void resize(size_t newNumBits);
+  auto resize(size_t new_num_bits) -> void;
 
   // Get current number of bits
-  [[nodiscard]] size_t size() const;
+  [[nodiscard]] auto size() const -> size_t;
 
   // --- Advanced Features ---
 
   // 1. Proxy Reference for operator[]
-  class Reference {
-    friend class Bitset;
-    Bitset *m_bitset;
+  class reference_t {
+    friend class bitset_t;
+    bitset_t *m_bitset;
     size_t m_index;
 
-    Reference(Bitset *bitset, size_t index)
+    reference_t(bitset_t *bitset, size_t index)
         : m_bitset(bitset), m_index(index) {}
 
   public:
-    ~Reference() = default;
+    ~reference_t() = default;
 
     // Convert to bool
     operator bool() const { return m_bitset->test(m_index); }
 
     // Assign bool
-    Reference &operator=(bool x) {
+    auto operator=(bool x) -> reference_t & {
       m_bitset->set(m_index, x);
       return *this;
     }
 
     // Assign another reference
-    Reference &operator=(const Reference &rhs) {
+    auto operator=(const reference_t &rhs) -> reference_t & {
       m_bitset->set(m_index, (bool)rhs);
       return *this;
     }
 
-    Reference &flip() {
+    auto flip() -> reference_t & {
       m_bitset->flip(m_index);
       return *this;
     }
 
-    bool operator~() const { return !m_bitset->test(m_index); }
+    auto operator~() const -> bool { return !m_bitset->test(m_index); }
   };
 
-  Reference operator[](size_t index) { return Reference(this, index); }
+  auto operator[](size_t index) -> reference_t {
+    return reference_t(this, index);
+  }
 
-  bool operator[](size_t index) const { return test(index); }
+  auto operator[](size_t index) const -> bool { return test(index); }
 
   // 2. Mass Bitwise Operations
-  Bitset &operator&=(const Bitset &rhs);
-  Bitset &operator|=(const Bitset &rhs);
-  Bitset &operator^=(const Bitset &rhs);
-  Bitset operator~() const;
+  auto operator&=(const bitset_t &rhs) -> bitset_t &;
+  auto operator|=(const bitset_t &rhs) -> bitset_t &;
+  auto operator^=(const bitset_t &rhs) -> bitset_t &;
+  auto operator~() const -> bitset_t;
 
-  friend Bitset operator&(const Bitset &lhs, const Bitset &rhs) {
-    Bitset result = lhs;
+  friend auto operator&(const bitset_t &lhs, const bitset_t &rhs) -> bitset_t {
+    bitset_t result = lhs;
     result &= rhs;
     return result;
   }
 
-  friend Bitset operator|(const Bitset &lhs, const Bitset &rhs) {
-    Bitset result = lhs;
+  friend auto operator|(const bitset_t &lhs, const bitset_t &rhs) -> bitset_t {
+    bitset_t result = lhs;
     result |= rhs;
     return result;
   }
 
-  friend Bitset operator^(const Bitset &lhs, const Bitset &rhs) {
-    Bitset result = lhs;
+  friend auto operator^(const bitset_t &lhs, const bitset_t &rhs) -> bitset_t {
+    bitset_t result = lhs;
     result ^= rhs;
     return result;
   }
 
   // 3. Population & Search
-  [[nodiscard]] size_t count() const;
-  [[nodiscard]] bool any() const;
-  [[nodiscard]] bool none() const;
-  [[nodiscard]] bool all() const;
+  [[nodiscard]] auto count() const -> size_t;
+  [[nodiscard]] auto any() const -> bool;
+  [[nodiscard]] auto none() const -> bool;
+  [[nodiscard]] auto all() const -> bool;
 
-  [[nodiscard]] std::optional<size_t> findFirstSet() const;
-  [[nodiscard]] std::optional<size_t> findFirstZero() const;
-  [[nodiscard]] std::optional<size_t> findNextSet(size_t index) const;
-  [[nodiscard]] std::optional<size_t> findNextZero(size_t index) const;
+  [[nodiscard]] auto find_first_set() const -> std::optional<size_t>;
+  [[nodiscard]] auto find_first_zero() const -> std::optional<size_t>;
+  [[nodiscard]] auto find_next_set(size_t index) const -> std::optional<size_t>;
+  [[nodiscard]] auto find_next_zero(size_t index) const
+      -> std::optional<size_t>;
 
   // 4. String Conversion
-  [[nodiscard]] std::string toString() const;
-  friend std::ostream &operator<<(std::ostream &os, const Bitset &b);
+  [[nodiscard]] auto to_string() const -> std::string;
+  friend auto operator<<(std::ostream &os, const bitset_t &b) -> std::ostream &;
 
   // 6. Set-Bit Iterator
-  class OnesView {
-    const Bitset *m_bitset;
+  class ones_view_t {
+    const bitset_t *m_bitset;
 
   public:
-    class Iterator {
-      const Bitset *m_bitset;
+    class iterator_t {
+      const bitset_t *m_bitset;
       size_t m_current;
 
-      void advance() {
+      auto advance() -> void {
         if (m_current >= m_bitset->size())
           return;
         m_current++;
-        // Find next set bit
-        // We can optimize this by accessing blocks, but using public/private
-        // helper is fine. Since this is nested/friend, we can access m_blocks
-        // if needed, but let's use a helper for clarity or block scans. For
-        // "high performance", we must scan blocks.
 
         // Fast forward through zero blocks
         while (m_current < m_bitset->size()) {
@@ -194,11 +200,11 @@ public:
             return;
 
           // Optimization: if we are at start of a block and it's 0, skip.
-          if (m_current % BitsPerBlock == 0) {
-            size_t blockIdx = m_current / BitsPerBlock;
-            if (blockIdx < m_bitset->m_blocks.size() &&
-                m_bitset->m_blocks[blockIdx] == 0) {
-              m_current += BitsPerBlock;
+          if (m_current % BITS_PER_BLOCK == 0) {
+            size_t block_idx = m_current / BITS_PER_BLOCK;
+            if (block_idx < m_bitset->m_blocks.size() &&
+                m_bitset->m_blocks[block_idx] == 0) {
+              m_current += BITS_PER_BLOCK;
               continue;
             }
           }
@@ -213,27 +219,16 @@ public:
       using pointer = const size_t *;
       using reference = const size_t &;
 
-      Iterator(const Bitset *bs, size_t start)
+      iterator_t(const bitset_t *bs, size_t start)
           : m_bitset(bs), m_current(start) {
         // If start is not set, find first set
         if (m_current < m_bitset->size() && !m_bitset->test(m_current)) {
-          // Try to find first set bit efficiently
-          // Re-use advance logic or separate find logic?
-          // Let's just call advance? No, advance moves +1 first.
-          // We need "ensure valid".
-          // Let's rely on the fact that begin() passes firstSet, or 0.
-          // If we pass 0 and 0 is unset, we need to move.
-
-          // Let's duplicate scan logic for "init" vs "advance" or make helper.
-          // Actually, let's just use the simple loop here for safety,
-          // assuming 'start' is a hint.
-          // Or efficient scan:
           while (m_current < m_bitset->size() && !m_bitset->test(m_current)) {
-            if (m_current % BitsPerBlock == 0) {
-              size_t blockIdx = m_current / BitsPerBlock;
-              if (blockIdx < m_bitset->m_blocks.size() &&
-                  m_bitset->m_blocks[blockIdx] == 0) {
-                m_current += BitsPerBlock;
+            if (m_current % BITS_PER_BLOCK == 0) {
+              size_t block_idx = m_current / BITS_PER_BLOCK;
+              if (block_idx < m_bitset->m_blocks.size() &&
+                  m_bitset->m_blocks[block_idx] == 0) {
+                m_current += BITS_PER_BLOCK;
                 continue;
               }
             }
@@ -242,77 +237,81 @@ public:
         }
       }
 
-      size_t operator*() const { return m_current; }
+      auto operator*() const -> size_t { return m_current; }
 
-      Iterator &operator++() {
+      auto operator++() -> iterator_t & {
         advance();
         return *this;
       }
 
-      Iterator operator++(int) {
-        Iterator tmp = *this;
+      auto operator++(int) -> iterator_t {
+        iterator_t tmp = *this;
         advance();
         return tmp;
       }
 
-      bool operator==(const Iterator &other) const {
+      auto operator==(const iterator_t &other) const -> bool {
         // End iterator is marked by index >= size
-        bool thisEnd = m_current >= m_bitset->size();
-        bool otherEnd = other.m_current >= other.m_bitset->size();
-        if (thisEnd && otherEnd)
+        bool this_end = m_current >= m_bitset->size();
+        bool other_end = other.m_current >= other.m_bitset->size();
+        if (this_end && other_end)
           return true;
         return m_current == other.m_current;
       }
 
-      bool operator!=(const Iterator &other) const { return !(*this == other); }
+      auto operator!=(const iterator_t &other) const -> bool {
+        return !(*this == other);
+      }
     };
 
-    OnesView(const Bitset *bs) : m_bitset(bs) {}
+    ones_view_t(const bitset_t *bs) : m_bitset(bs) {}
 
-    Iterator begin() const { return Iterator(m_bitset, 0); }
+    auto begin() const -> iterator_t { return iterator_t(m_bitset, 0); }
 
-    Iterator end() const { return Iterator(m_bitset, m_bitset->size()); }
+    auto end() const -> iterator_t {
+      return iterator_t(m_bitset, m_bitset->size());
+    }
   };
 
-  OnesView ones() const { return OnesView(this); }
+  auto ones() const -> ones_view_t { return ones_view_t(this); }
 
   // 7. Shift Operators
-  Bitset &operator<<=(size_t pos);
-  Bitset &operator>>=(size_t pos);
+  auto operator<<=(size_t pos) -> bitset_t &;
+  auto operator>>=(size_t pos) -> bitset_t &;
 
-  Bitset operator<<(size_t pos) const {
-    Bitset res = *this;
+  auto operator<<(size_t pos) const -> bitset_t {
+    bitset_t res = *this;
     res <<= pos;
     return res;
   }
 
-  Bitset operator>>(size_t pos) const {
-    Bitset res = *this;
+  auto operator>>(size_t pos) const -> bitset_t {
+    bitset_t res = *this;
     res >>= pos;
     return res;
   }
 
   // 8. Range Operations
-  void setRange(size_t start, size_t count, bool value);
-  void flipRange(size_t start, size_t count);
+  auto set_range(size_t start, size_t count, bool value) -> void;
+  auto flip_range(size_t start, size_t count) -> void;
 
   // 10. Polish Features
-  explicit Bitset(std::string_view binaryString);
-  uint64_t to_uint64() const;
-  bool isSubsetOf(const Bitset &other) const;
-  bool intersects(const Bitset &other) const;
-  Bitset slice(size_t start, size_t count) const;
-  size_t hammingDistance(const Bitset &other) const;
+  explicit bitset_t(std::string_view binary_string);
+  auto to_uint64() const -> uint64_t;
+  auto is_subset_of(const bitset_t &other) const -> bool;
+  auto intersects(const bitset_t &other) const -> bool;
+  auto slice(size_t start, size_t count) const -> bitset_t;
+  auto hamming_distance(const bitset_t &other) const -> size_t;
 
-  class ZerosView {
-    const Bitset *m_bitset;
+  class zeros_view_t {
+    const bitset_t *m_bitset;
 
   public:
-    class Iterator {
-      const Bitset *m_bitset;
+    class iterator_t {
+      const bitset_t *m_bitset;
       size_t m_current;
 
-      void advance() {
+      auto advance() -> void {
         if (m_current >= m_bitset->size())
           return;
         m_current++;
@@ -323,13 +322,13 @@ public:
 
           // Optimization: if we are at start of a block and it's all ones (~0),
           // skip.
-          if (m_current % BitsPerBlock == 0) {
-            size_t blockIdx = m_current / BitsPerBlock;
+          if (m_current % BITS_PER_BLOCK == 0) {
+            size_t block_idx = m_current / BITS_PER_BLOCK;
             // Be careful with last partial block, but assuming full blocks
             // logic holds for internal storage
-            if (blockIdx < m_bitset->m_blocks.size() &&
-                m_bitset->m_blocks[blockIdx] == ~static_cast<BlockType>(0)) {
-              m_current += BitsPerBlock;
+            if (block_idx < m_bitset->m_blocks.size() &&
+                m_bitset->m_blocks[block_idx] == ~static_cast<block_type>(0)) {
+              m_current += BITS_PER_BLOCK;
               continue;
             }
           }
@@ -344,16 +343,17 @@ public:
       using pointer = const size_t *;
       using reference = const size_t &;
 
-      Iterator(const Bitset *bs, size_t start)
+      iterator_t(const bitset_t *bs, size_t start)
           : m_bitset(bs), m_current(start) {
         if (m_current < m_bitset->size() && m_bitset->test(m_current)) {
           // Current is set, find first zero
           while (m_current < m_bitset->size() && m_bitset->test(m_current)) {
-            if (m_current % BitsPerBlock == 0) {
-              size_t blockIdx = m_current / BitsPerBlock;
-              if (blockIdx < m_bitset->m_blocks.size() &&
-                  m_bitset->m_blocks[blockIdx] == ~static_cast<BlockType>(0)) {
-                m_current += BitsPerBlock;
+            if (m_current % BITS_PER_BLOCK == 0) {
+              size_t block_idx = m_current / BITS_PER_BLOCK;
+              if (block_idx < m_bitset->m_blocks.size() &&
+                  m_bitset->m_blocks[block_idx] ==
+                      ~static_cast<block_type>(0)) {
+                m_current += BITS_PER_BLOCK;
                 continue;
               }
             }
@@ -362,62 +362,68 @@ public:
         }
       }
 
-      size_t operator*() const { return m_current; }
+      auto operator*() const -> size_t { return m_current; }
 
-      Iterator &operator++() {
+      auto operator++() -> iterator_t & {
         advance();
         return *this;
       }
 
-      Iterator operator++(int) {
-        Iterator tmp = *this;
+      auto operator++(int) -> iterator_t {
+        iterator_t tmp = *this;
         advance();
         return tmp;
       }
 
-      bool operator==(const Iterator &other) const {
-        bool thisEnd = m_current >= m_bitset->size();
-        bool otherEnd = other.m_current >= other.m_bitset->size();
-        if (thisEnd && otherEnd)
+      auto operator==(const iterator_t &other) const -> bool {
+        bool this_end = m_current >= m_bitset->size();
+        bool other_end = other.m_current >= other.m_bitset->size();
+        if (this_end && other_end)
           return true;
         return m_current == other.m_current;
       }
 
-      bool operator!=(const Iterator &other) const { return !(*this == other); }
+      auto operator!=(const iterator_t &other) const -> bool {
+        return !(*this == other);
+      }
     };
 
-    ZerosView(const Bitset *bs) : m_bitset(bs) {}
+    zeros_view_t(const bitset_t *bs) : m_bitset(bs) {}
 
-    Iterator begin() const { return Iterator(m_bitset, 0); }
+    auto begin() const -> iterator_t { return iterator_t(m_bitset, 0); }
 
-    Iterator end() const { return Iterator(m_bitset, m_bitset->size()); }
+    auto end() const -> iterator_t {
+      return iterator_t(m_bitset, m_bitset->size());
+    }
   };
 
-  ZerosView zeros() const { return ZerosView(this); }
-  friend struct std::hash<Bitset>;
+  auto zeros() const -> zeros_view_t { return zeros_view_t(this); }
+  friend struct std::hash<bitset_t>;
 
-  bool operator==(const Bitset &other) const;
-  bool operator!=(const Bitset &other) const { return !(*this == other); }
-
-  // 5. File I/O
-  void save(const std::string &filename) const;
-  void load(const std::string &filename);
-
-private:
-  std::vector<BlockType> m_blocks;
-  size_t m_numBits;
-
-  [[nodiscard]] size_t getBlockIndex(size_t bitIndex) const {
-    return bitIndex / BitsPerBlock;
+  auto operator==(const bitset_t &other) const -> bool;
+  auto operator!=(const bitset_t &other) const -> bool {
+    return !(*this == other);
   }
 
-  [[nodiscard]] size_t getBitOffset(size_t bitIndex) const {
-    return bitIndex % BitsPerBlock;
+  // 5. File I/O
+  auto save(const std::string &filename) const -> void;
+  auto load(const std::string &filename) -> void;
+
+private:
+  std::vector<block_type> m_blocks;
+  size_t m_num_bits;
+
+  [[nodiscard]] auto get_block_index(size_t bit_index) const -> size_t {
+    return bit_index / BITS_PER_BLOCK;
+  }
+
+  [[nodiscard]] auto get_bit_offset(size_t bit_index) const -> size_t {
+    return bit_index % BITS_PER_BLOCK;
   }
 
 public:
   // Helper to swap bytes for arithmetic types if system is Big Endian
-  template <typename T> static T toLittleEndian(T val) {
+  template <typename T> static auto to_little_endian(T val) -> T {
     if constexpr (std::endian::native == std::endian::big) {
       if constexpr (std::is_arithmetic_v<T>) {
         auto *ptr = reinterpret_cast<uint8_t *>(&val);
@@ -427,27 +433,27 @@ public:
     return val;
   }
 
-  template <typename T> static T fromLittleEndian(T val) {
+  template <typename T> static auto from_little_endian(T val) -> T {
     // The operation is symmetric
-    return toLittleEndian(val);
+    return to_little_endian(val);
   }
 
-  template <typename T> void writeObject(size_t index, T value) {
+  template <typename T> auto write_object(size_t index, T value) -> void {
     // Enforce Little Endian for arithmetic types
     if constexpr (std::is_arithmetic_v<T>) {
-      value = toLittleEndian(value);
+      value = to_little_endian(value);
     }
 
     const uint8_t *bytes = reinterpret_cast<const uint8_t *>(&value);
     for (size_t i = 0; i < sizeof(T); ++i) {
       for (size_t bit = 0; bit < 8; ++bit) {
-        bool bitVal = (bytes[i] >> bit) & 1;
-        set(index + (i * 8) + bit, bitVal);
+        bool bit_val = (bytes[i] >> bit) & 1;
+        set(index + (i * 8) + bit, bit_val);
       }
     }
   }
 
-  template <typename T> T readObject(size_t index) const {
+  template <typename T> auto read_object(size_t index) const -> T {
     T value;
     uint8_t *bytes = reinterpret_cast<uint8_t *>(&value);
 
@@ -464,9 +470,11 @@ public:
 
     // Convert back to native endianness if necessary
     if constexpr (std::is_arithmetic_v<T>) {
-      value = fromLittleEndian(value);
+      value = from_little_endian(value);
     }
 
     return value;
   }
 };
+
+} // namespace zephyr
