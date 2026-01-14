@@ -1,0 +1,3 @@
+/home/marc/programming/c++/bitset/CMakeFiles/bitset_app.dir
+/home/marc/programming/c++/bitset/CMakeFiles/edit_cache.dir
+/home/marc/programming/c++/bitset/CMakeFiles/rebuild_cache.dir
