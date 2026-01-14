@@ -24,6 +24,15 @@ void Bitset::resize(size_t newNumBits) {
 
 size_t Bitset::size() const { return m_numBits; }
 
+// SIMD Stride Constants for 32/64-bit Size_t Compatibility
+#if defined(__AVX2__)
+// AVX2 is 256 bits (32 bytes). Stride in BlockType count.
+static constexpr size_t SimdStrideAVX2 = 32 / sizeof(Bitset::BlockType);
+#elif defined(__ARM_NEON)
+// NEON is 128 bits (16 bytes). Stride in BlockType count.
+static constexpr size_t SimdStrideNEON = 16 / sizeof(Bitset::BlockType);
+#endif
+
 // --- Advanced Features Implementation ---
 
 // 2. Mass Bitwise Operations
@@ -37,8 +46,8 @@ Bitset &Bitset::operator&=(const Bitset &rhs) {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  // Process 256 bits (4 x 64-bit blocks) at a time
-  for (; i + 4 <= n; i += 4) {
+  // Process 256 bits at a time
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     __m256i b =
@@ -47,8 +56,8 @@ Bitset &Bitset::operator&=(const Bitset &rhs) {
                         _mm256_and_si256(a, b));
   }
 #elif defined(__ARM_NEON)
-  // Process 128 bits (2 x 64-bit blocks) at a time
-  for (; i + 2 <= n; i += 2) {
+  // Process 128 bits at a time
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
     vst1q_u64(&m_blocks[i], vandq_u64(a, b));
@@ -72,7 +81,7 @@ Bitset &Bitset::operator|=(const Bitset &rhs) {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     __m256i b =
@@ -81,7 +90,7 @@ Bitset &Bitset::operator|=(const Bitset &rhs) {
                         _mm256_or_si256(a, b));
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
     vst1q_u64(&m_blocks[i], vorrq_u64(a, b));
@@ -104,7 +113,7 @@ Bitset &Bitset::operator^=(const Bitset &rhs) {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     __m256i b =
@@ -113,7 +122,7 @@ Bitset &Bitset::operator^=(const Bitset &rhs) {
                         _mm256_xor_si256(a, b));
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     uint64x2_t b = vld1q_u64(&rhs.m_blocks[i]);
     vst1q_u64(&m_blocks[i], veorq_u64(a, b));
@@ -133,14 +142,14 @@ Bitset Bitset::operator~() const {
 
 #if defined(__AVX2__)
   __m256i allOnes = _mm256_set1_epi64x(-1);
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     _mm256_storeu_si256(reinterpret_cast<__m256i *>(&result.m_blocks[i]),
                         _mm256_xor_si256(a, allOnes));
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     vst1q_u64(&result.m_blocks[i], vmvnq_u64(a));
   }
@@ -167,6 +176,7 @@ size_t Bitset::count() const {
   size_t n = m_blocks.size();
 
   // Unroll loop 4x to break dependency chain
+  // Safe on 32-bit: BlockType is 32-bit, so 4x unroll is 128 bits.
   for (; i + 4 <= n; i += 4) {
     cnt0 += std::popcount(m_blocks[i]);
     cnt1 += std::popcount(m_blocks[i + 1]);
@@ -186,14 +196,14 @@ bool Bitset::any() const {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     if (!_mm256_testz_si256(val, val))
       return true;
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t val = vld1q_u64(&m_blocks[i]);
     // logical OR of two 64-bit lanes
     uint64_t low = vgetq_lane_u64(val, 0);
@@ -202,13 +212,14 @@ bool Bitset::any() const {
       return true;
   }
 #endif
-
   for (; i < n; ++i) {
     if (m_blocks[i] != 0)
       return true;
   }
   return false;
 }
+
+// 3. Population & Search
 
 bool Bitset::none() const { return !any(); }
 
@@ -218,21 +229,15 @@ bool Bitset::all() const {
 
 #if defined(__AVX2__)
   __m256i allOnes = _mm256_set1_epi64x(-1);
-  for (; i + 4 <= fullBlocks; i += 4) {
+  for (; i + SimdStrideAVX2 <= fullBlocks; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
-    // Check if any bit is ZERO. testc(a,b) returns 1 if b has all bits of a.
-    // So testc(val, allOnes) checks if val has all bits of allOnes... wait.
-    // testc(a,b) : (b & ~a) == 0 ?? No.
-    // _mm256_testc_si256(a, b) returns 1 if (a & ~b) == 0.
-    // We want (allOnes & ~val) == 0. So testc(allOnes, val).
     if (!_mm256_testc_si256(val, allOnes))
       return false;
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= fullBlocks; i += 2) {
+  for (; i + SimdStrideNEON <= fullBlocks; i += SimdStrideNEON) {
     uint64x2_t val = vld1q_u64(&m_blocks[i]);
-    // check if all bits are 1. Invert and check if 0.
     val = vmvnq_u64(val);
     if (vgetq_lane_u64(val, 0) | vgetq_lane_u64(val, 1))
       return false;
@@ -260,9 +265,9 @@ std::optional<size_t> Bitset::findFirstSet() const {
   size_t fullBlocks = m_numBits / BitsPerBlock;
   size_t i = 0;
 
-  // SIMD: Skip 256-bit / 128-bit chunks that are all zero
+  // SIMD: Skip chunks that are all zero
 #if defined(__AVX2__)
-  for (; i + 4 <= fullBlocks; i += 4) {
+  for (; i + SimdStrideAVX2 <= fullBlocks; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     if (_mm256_testz_si256(val, val))
@@ -270,11 +275,10 @@ std::optional<size_t> Bitset::findFirstSet() const {
     break;      // Found non-zero
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= fullBlocks; i += 2) {
+  for (; i + SimdStrideNEON <= fullBlocks; i += SimdStrideNEON) {
     uint64x2_t val = vld1q_u64(&m_blocks[i]);
-    // logical OR of two 64-bit lanes
-    uint64_t low = vgetq_lane_u64(val, 0);
-    uint64_t high = vgetq_lane_u64(val, 1);
+    uint64x2_t low = vgetq_lane_u64(val, 0);
+    uint64x2_t high = vgetq_lane_u64(val, 1);
     if ((low | high) == 0)
       continue;
     break;
@@ -309,16 +313,15 @@ std::optional<size_t> Bitset::findFirstZero() const {
   // SIMD: Skip chunks that are all ones
 #if defined(__AVX2__)
   __m256i allOnes = _mm256_set1_epi64x(-1);
-  for (; i + 4 <= fullBlocks; i += 4) {
+  for (; i + SimdStrideAVX2 <= fullBlocks; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
-    // Check if (val & ~allOnes) == 0 ? No. Check if (allOnes & ~val) == 0.
     if (_mm256_testc_si256(val, allOnes))
       continue; // All ones, skip
     break;
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= fullBlocks; i += 2) {
+  for (; i + SimdStrideNEON <= fullBlocks; i += SimdStrideNEON) {
     uint64x2_t val = vld1q_u64(&m_blocks[i]);
     val = vmvnq_u64(val); // invert
     uint64_t low = vgetq_lane_u64(val, 0);
@@ -328,7 +331,6 @@ std::optional<size_t> Bitset::findFirstZero() const {
     break;
   }
 #endif
-
   // Check full blocks
   for (; i < fullBlocks; ++i) {
     if (m_blocks[i] != static_cast<BlockType>(~0)) {
@@ -378,7 +380,7 @@ std::optional<size_t> Bitset::findNextSet(size_t index) const {
 
   // SIMD skip for middle blocks
 #if defined(__AVX2__)
-  for (; i + 4 <= fullBlocks; i += 4) {
+  for (; i + SimdStrideAVX2 <= fullBlocks; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     if (_mm256_testz_si256(val, val))
@@ -428,7 +430,7 @@ std::optional<size_t> Bitset::findNextZero(size_t index) const {
 
 #if defined(__AVX2__)
   __m256i allOnes = _mm256_set1_epi64x(-1);
-  for (; i + 4 <= fullBlocks; i += 4) {
+  for (; i + SimdStrideAVX2 <= fullBlocks; i += SimdStrideAVX2) {
     __m256i val =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     if (_mm256_testc_si256(val, allOnes))
@@ -438,19 +440,17 @@ std::optional<size_t> Bitset::findNextZero(size_t index) const {
 #endif
 
   for (; i < fullBlocks; ++i) {
-    if (m_blocks[i] != static_cast<BlockType>(~0)) {
-      return i * BitsPerBlock + std::countr_one(m_blocks[i]);
+    if (m_blocks[i] != 0) {
+      return i * BitsPerBlock + std::countr_zero(m_blocks[i]);
     }
   }
 
+  // Last partial block
   size_t extraBits = m_numBits % BitsPerBlock;
   if (extraBits != 0 && i == fullBlocks) {
     BlockType lastMask = (static_cast<BlockType>(1) << extraBits) - 1;
-    BlockType val = m_blocks.back();
-    // Only care about bits in mask
-    if ((val & lastMask) != lastMask) {
-      BlockType inverted = ~val & lastMask;
-      return i * BitsPerBlock + std::countr_zero(inverted);
+    if ((m_blocks.back() & lastMask) != 0) {
+      return i * BitsPerBlock + std::countr_zero(m_blocks.back());
     }
   }
 
@@ -830,7 +830,7 @@ bool Bitset::isSubsetOf(const Bitset &other) const {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     __m256i b = _mm256_loadu_si256(
@@ -840,7 +840,7 @@ bool Bitset::isSubsetOf(const Bitset &other) const {
       return false;
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     uint64x2_t b = vld1q_u64(&other.m_blocks[i]);
     // check (a & ~b) == 0
@@ -868,7 +868,7 @@ bool Bitset::intersects(const Bitset &other) const {
   size_t n = m_blocks.size();
 
 #if defined(__AVX2__)
-  for (; i + 4 <= n; i += 4) {
+  for (; i + SimdStrideAVX2 <= n; i += SimdStrideAVX2) {
     __m256i a =
         _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
     __m256i b = _mm256_loadu_si256(
@@ -878,7 +878,7 @@ bool Bitset::intersects(const Bitset &other) const {
       return true;
   }
 #elif defined(__ARM_NEON)
-  for (; i + 2 <= n; i += 2) {
+  for (; i + SimdStrideNEON <= n; i += SimdStrideNEON) {
     uint64x2_t a = vld1q_u64(&m_blocks[i]);
     uint64x2_t b = vld1q_u64(&other.m_blocks[i]);
     uint64x2_t both = vandq_u64(a, b);
