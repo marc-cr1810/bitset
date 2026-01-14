@@ -119,6 +119,40 @@ void testPolish() {
     std::cout << "Zeros Iterator FAILED" << std::endl;
 }
 
+// Slice Benchmark
+void testSlice() {
+  std::cout << "\n--- Slice Test ---" << std::endl;
+  // 0123456789...
+  // 10111000...
+  Bitset bs(10);
+  bs[0] = 1;
+  bs[2] = 1;
+  bs[3] = 1;
+  bs[4] = 1;
+
+  // Slice "111" starting at 2
+  Bitset s = bs.slice(2, 3);
+  if (s.size() == 3 && s[0] && s[1] && s[2])
+    std::cout << "Slice exact PASSED" << std::endl;
+  else
+    std::cout << "Slice exact FAILED: " << s.toString() << std::endl;
+
+  // Slice crossing blocks (simulated)
+  Bitset longB(100);
+  longB.set(60);
+  longB.set(65);
+  // Slice around 60: start 50, count 20. 60->10, 65->15
+  Bitset s2 = longB.slice(50, 20);
+  if (s2.size() == 20 && s2[10] && s2[15])
+    std::cout << "Slice cross-block PASSED" << std::endl;
+  else
+    std::cout << "Slice cross-block FAILED" << std::endl;
+
+  // Slice checks bounds
+  if (bs.slice(10, 1).size() == 0)
+    std::cout << "Slice bounds cap PASSED" << std::endl;
+}
+
 int main() {
   std::cout << "Starting All Tests..." << std::endl;
   testProxy();
@@ -128,6 +162,7 @@ int main() {
   testIterator();
   testShiftRangeHash();
   testPolish();
+  testSlice();
   // Benchmark
   std::cout << "\n--- Performance Benchmark ---" << std::endl;
   Bitset bm(100000000); // 100 million bits

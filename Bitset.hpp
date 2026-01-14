@@ -283,6 +283,7 @@ public:
   uint64_t to_uint64() const;
   bool isSubsetOf(const Bitset &other) const;
   bool intersects(const Bitset &other) const;
+  Bitset slice(size_t start, size_t count) const;
 
   class ZerosView {
     const Bitset *m_bitset;

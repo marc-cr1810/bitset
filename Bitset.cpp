@@ -467,3 +467,26 @@ bool Bitset::intersects(const Bitset &other) const {
   }
   return false;
 }
+
+Bitset Bitset::slice(size_t start, size_t count) const {
+  if (start > m_numBits) {
+    throw std::out_of_range("Bitset slice start out of range");
+  }
+  // behave like substr: if count is too large, cap it
+  if (start + count > m_numBits) {
+    count = m_numBits - start;
+  }
+
+  Bitset result = *this;
+  result >>= start;
+  result.resize(count);
+
+  // Explicitly clear unused bits in the last block
+  size_t extraBits = count % BitsPerBlock;
+  if (extraBits != 0 && result.m_blocks.size() > 0) {
+    BlockType mask = (static_cast<BlockType>(1) << extraBits) - 1;
+    result.m_blocks.back() &= mask;
+  }
+
+  return result;
+}
