@@ -35,6 +35,11 @@ public:
   static constexpr size_t BitsPerBlock = sizeof(BlockType) * 8;
 
   explicit Bitset(size_t numBits);
+  ~Bitset() = default;
+  Bitset(const Bitset &) = default;
+  Bitset &operator=(const Bitset &) = default;
+  Bitset(Bitset &&) noexcept = default;
+  Bitset &operator=(Bitset &&) noexcept = default;
 
   // Set bit at index to value
   void set(size_t index, bool value = true) {
@@ -44,12 +49,15 @@ public:
   }
 
   void setUnchecked(size_t index, bool value) {
-    if (value)
-      m_blocks[index / BitsPerBlock] |=
-          (static_cast<BlockType>(1) << (index % BitsPerBlock));
-    else
-      m_blocks[index / BitsPerBlock] &=
-          ~(static_cast<BlockType>(1) << (index % BitsPerBlock));
+    BlockType mask = static_cast<BlockType>(1) << (index % BitsPerBlock);
+    // Branchless set:
+    // If value is 1, -value is all 1s (on 2s complement).
+    // If value is 0, -value is 0.
+    // (blocks & ~mask) clears the bit.
+    // ((-value) & mask) sets the bit if value is 1, else 0.
+    m_blocks[index / BitsPerBlock] =
+        (m_blocks[index / BitsPerBlock] & ~mask) |
+        (static_cast<BlockType>(-static_cast<std::ptrdiff_t>(value)) & mask);
   }
 
   // Get bit at index
@@ -154,6 +162,8 @@ public:
 
   [[nodiscard]] std::optional<size_t> findFirstSet() const;
   [[nodiscard]] std::optional<size_t> findFirstZero() const;
+  [[nodiscard]] std::optional<size_t> findNextSet(size_t index) const;
+  [[nodiscard]] std::optional<size_t> findNextZero(size_t index) const;
 
   // 4. String Conversion
   [[nodiscard]] std::string toString() const;
@@ -284,6 +294,7 @@ public:
 
   // 8. Range Operations
   void setRange(size_t start, size_t count, bool value);
+  void flipRange(size_t start, size_t count);
 
   // 10. Polish Features
   explicit Bitset(std::string_view binaryString);

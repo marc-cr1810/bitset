@@ -162,11 +162,23 @@ Bitset Bitset::operator~() const {
 
 // 3. Population & Search
 size_t Bitset::count() const {
-  size_t cnt = 0;
-  for (const auto &block : m_blocks) {
-    cnt += std::popcount(block);
+  size_t cnt0 = 0, cnt1 = 0, cnt2 = 0, cnt3 = 0;
+  size_t i = 0;
+  size_t n = m_blocks.size();
+
+  // Unroll loop 4x to break dependency chain
+  for (; i + 4 <= n; i += 4) {
+    cnt0 += std::popcount(m_blocks[i]);
+    cnt1 += std::popcount(m_blocks[i + 1]);
+    cnt2 += std::popcount(m_blocks[i + 2]);
+    cnt3 += std::popcount(m_blocks[i + 3]);
   }
-  return cnt;
+
+  size_t total = cnt0 + cnt1 + cnt2 + cnt3;
+  for (; i < n; ++i) {
+    total += std::popcount(m_blocks[i]);
+  }
+  return total;
 }
 
 bool Bitset::any() const {
@@ -344,6 +356,107 @@ std::optional<size_t> Bitset::findFirstZero() const {
   return std::nullopt;
 }
 
+std::optional<size_t> Bitset::findNextSet(size_t index) const {
+  if (index >= m_numBits) {
+    return std::nullopt;
+  }
+
+  size_t i = index / BitsPerBlock;
+  size_t bitOffset = index % BitsPerBlock;
+
+  // Check first block (possibly partial)
+  BlockType firstBlock = m_blocks[i];
+  // Clear bits before bitOffset
+  BlockType mask = (~static_cast<BlockType>(0)) << bitOffset;
+  if ((firstBlock & mask) != 0) {
+    return i * BitsPerBlock + std::countr_zero(firstBlock & mask);
+  }
+
+  // Continue to next blocks
+  i++;
+  size_t fullBlocks = m_numBits / BitsPerBlock;
+
+  // SIMD skip for middle blocks
+#if defined(__AVX2__)
+  for (; i + 4 <= fullBlocks; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    if (_mm256_testz_si256(val, val))
+      continue;
+    break;
+  }
+#endif
+
+  for (; i < fullBlocks; ++i) {
+    if (m_blocks[i] != 0) {
+      return i * BitsPerBlock + std::countr_zero(m_blocks[i]);
+    }
+  }
+
+  // Last partial block
+  size_t extraBits = m_numBits % BitsPerBlock;
+  if (extraBits != 0 && i == fullBlocks) {
+    BlockType lastMask = (static_cast<BlockType>(1) << extraBits) - 1;
+    if ((m_blocks.back() & lastMask) != 0) {
+      return i * BitsPerBlock + std::countr_zero(m_blocks.back());
+    }
+  }
+
+  return std::nullopt;
+}
+
+std::optional<size_t> Bitset::findNextZero(size_t index) const {
+  if (index >= m_numBits) {
+    return std::nullopt;
+  }
+
+  size_t i = index / BitsPerBlock;
+  size_t bitOffset = index % BitsPerBlock;
+
+  // Check first block
+  BlockType firstBlock = m_blocks[i];
+  BlockType mask = (~static_cast<BlockType>(0)) << bitOffset;
+
+  // We want a zero. So if (firstBlock & mask) == mask, it's all ones (in the
+  // valid range). Invert: ~firstBlock & mask. If non-zero, there is a zero bit.
+  if ((~firstBlock & mask) != 0) {
+    return i * BitsPerBlock + std::countr_zero(~firstBlock & mask);
+  }
+
+  i++;
+  size_t fullBlocks = m_numBits / BitsPerBlock;
+
+#if defined(__AVX2__)
+  __m256i allOnes = _mm256_set1_epi64x(-1);
+  for (; i + 4 <= fullBlocks; i += 4) {
+    __m256i val =
+        _mm256_loadu_si256(reinterpret_cast<const __m256i *>(&m_blocks[i]));
+    if (_mm256_testc_si256(val, allOnes))
+      continue;
+    break;
+  }
+#endif
+
+  for (; i < fullBlocks; ++i) {
+    if (m_blocks[i] != static_cast<BlockType>(~0)) {
+      return i * BitsPerBlock + std::countr_one(m_blocks[i]);
+    }
+  }
+
+  size_t extraBits = m_numBits % BitsPerBlock;
+  if (extraBits != 0 && i == fullBlocks) {
+    BlockType lastMask = (static_cast<BlockType>(1) << extraBits) - 1;
+    BlockType val = m_blocks.back();
+    // Only care about bits in mask
+    if ((val & lastMask) != lastMask) {
+      BlockType inverted = ~val & lastMask;
+      return i * BitsPerBlock + std::countr_zero(inverted);
+    }
+  }
+
+  return std::nullopt;
+}
+
 // 4. String Conversion
 std::string Bitset::toString() const {
   std::string s;
@@ -446,6 +559,7 @@ void Bitset::load(const std::string &filename) {
 }
 
 // 7. Shift Operators
+// 7. Shift Operators
 Bitset &Bitset::operator<<=(size_t pos) {
   if (pos == 0)
     return *this;
@@ -457,25 +571,42 @@ Bitset &Bitset::operator<<=(size_t pos) {
   size_t blockShift = pos / BitsPerBlock;
   size_t bitShift = pos % BitsPerBlock;
 
-  if (bitShift == 0) {
-    for (size_t i = m_blocks.size(); i > blockShift; --i) {
-      m_blocks[i - 1] = m_blocks[i - 1 - blockShift];
-    }
-  } else {
-    for (size_t i = m_blocks.size(); i > blockShift; --i) {
-      size_t destIdx = i - 1;
-      size_t srcIdx = destIdx - blockShift;
-      BlockType val = m_blocks[srcIdx] << bitShift;
-      if (srcIdx > 0) {
-        val |= (m_blocks[srcIdx - 1] >> (BitsPerBlock - bitShift));
-      }
-      m_blocks[destIdx] = val;
+  // Block shift
+  if (blockShift > 0) {
+    // Move blocks starting from the end to avoid overwriting needed data
+    // (copy_backward) Destination: end() Source range: [begin, end -
+    // blockShift) But std::copy_backward copies TO result_last. m_blocks[i] =
+    // m_blocks[i - blockShift]
+    std::copy_backward(m_blocks.begin(), m_blocks.end() - blockShift,
+                       m_blocks.end());
+
+    // Zero out lower blocks
+    std::fill(m_blocks.begin(), m_blocks.begin() + blockShift, 0);
+  }
+
+  // Bit shift
+  if (bitShift > 0) {
+    BlockType carry = 0;
+    for (size_t i = 0; i < m_blocks.size(); ++i) {
+      // Optimized loop: shifting left moves bits to higher indices.
+      // We iterate forward?
+      // val = (current << shift) | carry
+      // next_carry = (current >> (64 - shift))
+      // Wait, if we iterate forward (0 to N):
+      // block 0: new_0 = (old_0 << shift) | carry(0)
+      // carry for 1 = old_0 >> (64-shift)
+      // This works correctly because old_0 is consumed and we write new_0.
+      // Wait, if we did block shift first, the data is already in place
+      // block-wise. Now we just shift bits within blocks and carry between
+      // neighbors? Yes.
+      BlockType val = m_blocks[i];
+      BlockType nextCarry = val >> (BitsPerBlock - bitShift);
+      m_blocks[i] = (val << bitShift) | carry;
+      carry = nextCarry;
     }
   }
-  std::fill(m_blocks.begin(), m_blocks.begin() + blockShift, 0);
-  if (blockShift < m_blocks.size()) {
-    m_blocks[blockShift] &= (~static_cast<BlockType>(0)) << bitShift;
-  }
+
+  // Clear extra bits
   size_t extraBits = m_numBits % BitsPerBlock;
   if (extraBits != 0) {
     BlockType mask = (static_cast<BlockType>(1) << extraBits) - 1;
@@ -495,28 +626,38 @@ Bitset &Bitset::operator>>=(size_t pos) {
   size_t blockShift = pos / BitsPerBlock;
   size_t bitShift = pos % BitsPerBlock;
 
-  if (bitShift == 0) {
-    for (size_t i = 0; i < m_blocks.size() - blockShift; ++i) {
-      m_blocks[i] = m_blocks[i + blockShift];
-    }
-  } else {
-    for (size_t i = 0; i < m_blocks.size() - blockShift; ++i) {
-      size_t destIdx = i;
-      size_t srcIdx = destIdx + blockShift;
+  if (blockShift > 0) {
+    // Move blocks from right to left (copy)
+    // m_blocks[i] = m_blocks[i + blockShift]
+    std::copy(m_blocks.begin() + blockShift, m_blocks.end(), m_blocks.begin());
 
-      BlockType val = m_blocks[srcIdx] >> bitShift;
-      if (srcIdx + 1 < m_blocks.size()) {
-        val |= (m_blocks[srcIdx + 1] << (BitsPerBlock - bitShift));
-      }
-      m_blocks[destIdx] = val;
+    // Zero out upper blocks
+    std::fill(m_blocks.end() - blockShift, m_blocks.end(), 0);
+  }
+
+  if (bitShift > 0) {
+    BlockType carry = 0;
+    // Iterate backwards
+    for (size_t i = m_blocks.size(); i > 0; --i) {
+      size_t idx = i - 1;
+      BlockType val = m_blocks[idx];
+      BlockType nextCarry = val << (BitsPerBlock - bitShift);
+      m_blocks[idx] = (val >> bitShift) | carry;
+      carry = nextCarry;
     }
+
+    // Masking should be handled naturally by 0-fill at top?
+    // But the last block might have brought in garbage from "outside" if we
+    // didn't mask first? No, "outside" is assumed 0? Or user responsibly?
+    // Actually standard says padding bits are unspecified but we enforce 0.
+    // So carry from outside is 0.
+    // However, if we shifted right, the topmost valid bits are 0.
+    // We should re-mask just in case? Or rely on fill?
+    // Since we fill upper blocks with 0, and carry starts 0, strict masking is
+    // maintained. But the very last block (if it was partial) has 0s in upper
+    // bits. Right shift moves those 0s in. So we are good.
   }
-  std::fill(m_blocks.end() - blockShift, m_blocks.end(), 0);
-  size_t extraBits = m_numBits % BitsPerBlock;
-  if (extraBits != 0) {
-    BlockType mask = (static_cast<BlockType>(1) << extraBits) - 1;
-    m_blocks.back() &= mask;
-  }
+
   return *this;
 }
 
@@ -574,6 +715,54 @@ void Bitset::setRange(size_t start, size_t count, bool value) {
       m_blocks[finalBlock] |= mask;
     else
       m_blocks[finalBlock] &= ~mask;
+  }
+}
+
+void Bitset::flipRange(size_t start, size_t count) {
+  if (count == 0)
+    return;
+  size_t end = start + count;
+  if (end > m_numBits) {
+    throw std::out_of_range("Range exceeds bitset size");
+  }
+
+  size_t currentBlock = start / BitsPerBlock;
+  size_t finalBlock = (end - 1) / BitsPerBlock;
+
+  if (start % BitsPerBlock != 0) {
+    BlockType mask = (~static_cast<BlockType>(0)) << (start % BitsPerBlock);
+    if (currentBlock == finalBlock) {
+      size_t localEnd = end % BitsPerBlock;
+      if (localEnd != 0) {
+        mask &= (static_cast<BlockType>(1) << localEnd) - 1;
+      }
+    }
+    m_blocks[currentBlock] ^= mask;
+
+    if (currentBlock == finalBlock)
+      return;
+    currentBlock++;
+  }
+
+  if (currentBlock < finalBlock) {
+    for (size_t i = currentBlock; i < finalBlock; ++i) {
+      m_blocks[i] ^= ~static_cast<BlockType>(0);
+    }
+    currentBlock = finalBlock;
+  }
+
+  if (currentBlock <= finalBlock) {
+    size_t localEnd = end % BitsPerBlock;
+    if (localEnd == 0)
+      localEnd = BitsPerBlock;
+
+    BlockType mask;
+    if (localEnd == BitsPerBlock)
+      mask = ~static_cast<BlockType>(0);
+    else
+      mask = (static_cast<BlockType>(1) << localEnd) - 1;
+
+    m_blocks[finalBlock] ^= mask;
   }
 }
 
@@ -737,7 +926,17 @@ size_t Bitset::hammingDistance(const Bitset &other) const {
   size_t i = 0;
   size_t n = m_blocks.size();
 
-  // SIMD-friendly loop (compiler auto-vectorization target)
+  size_t cnt0 = 0, cnt1 = 0, cnt2 = 0, cnt3 = 0;
+
+  // Unroll loop 4x
+  for (; i + 4 <= n; i += 4) {
+    cnt0 += std::popcount(m_blocks[i] ^ other.m_blocks[i]);
+    cnt1 += std::popcount(m_blocks[i + 1] ^ other.m_blocks[i + 1]);
+    cnt2 += std::popcount(m_blocks[i + 2] ^ other.m_blocks[i + 2]);
+    cnt3 += std::popcount(m_blocks[i + 3] ^ other.m_blocks[i + 3]);
+  }
+
+  dist = cnt0 + cnt1 + cnt2 + cnt3;
   for (; i < n; ++i) {
     dist += std::popcount(m_blocks[i] ^ other.m_blocks[i]);
   }
